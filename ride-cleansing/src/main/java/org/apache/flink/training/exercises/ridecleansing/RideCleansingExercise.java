@@ -20,12 +20,15 @@ package org.apache.flink.training.exercises.ridecleansing;
 
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.functions.FilterFunction;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.sink.PrintSinkFunction;
 import org.apache.flink.streaming.api.functions.sink.SinkFunction;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.training.exercises.common.datatypes.TaxiRide;
 import org.apache.flink.training.exercises.common.sources.TaxiRideGenerator;
+import org.apache.flink.training.exercises.common.utils.GeoUtils;
 import org.apache.flink.training.exercises.common.utils.MissingSolutionException;
 
 /**
@@ -74,13 +77,28 @@ public class RideCleansingExercise {
 
         // run the pipeline and return the result
         return env.execute("Taxi Ride Cleansing");
+
+//        // set up streaming execution environment
+//        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+//        env.setParallelism(5);
+//
+//        // set up the pipeline
+//        DataStreamSource<TaxiRide> rides = env.addSource(source);
+//
+//        SingleOutputStreamOperator<TaxiRide> filteredRides = rides.filter(new NYCFilter());
+//
+//        filteredRides.addSink(sink);
+//
+//        // run the pipeline and return the result
+//        return env.execute("Taxi Ride Cleansing");
     }
 
     /** Keep only those rides and both start and end in NYC. */
-    public static class NYCFilter implements FilterFunction<TaxiRide> {
+    public static class NYCFilter implements FilterFunction<TaxiRide>  {
         @Override
-        public boolean filter(TaxiRide taxiRide) throws Exception {
-            throw new MissingSolutionException();
+        public boolean filter(TaxiRide taxiRide)throws Exception {
+            return GeoUtils.isInNYC(taxiRide.startLon, taxiRide.startLat) && GeoUtils.isInNYC(taxiRide.endLon, taxiRide.endLat);
+
         }
     }
 }
