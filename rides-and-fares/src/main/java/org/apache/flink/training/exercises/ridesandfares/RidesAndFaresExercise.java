@@ -19,6 +19,8 @@
 package org.apache.flink.training.exercises.ridesandfares;
 
 import org.apache.flink.api.common.JobExecutionResult;
+import org.apache.flink.api.common.state.ValueState;
+import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -31,7 +33,6 @@ import org.apache.flink.training.exercises.common.datatypes.TaxiFare;
 import org.apache.flink.training.exercises.common.datatypes.TaxiRide;
 import org.apache.flink.training.exercises.common.sources.TaxiFareGenerator;
 import org.apache.flink.training.exercises.common.sources.TaxiRideGenerator;
-import org.apache.flink.training.exercises.common.utils.MissingSolutionException;
 import org.apache.flink.util.Collector;
 
 /**
@@ -45,7 +46,9 @@ public class RidesAndFaresExercise {
     private final SourceFunction<TaxiFare> fareSource;
     private final SinkFunction<RideAndFare> sink;
 
-    /** Creates a job using the sources and sink provided. */
+    /**
+     * Creates a job using the sources and sink provided.
+     */
     public RidesAndFaresExercise(
             SourceFunction<TaxiRide> rideSource,
             SourceFunction<TaxiFare> fareSource,
@@ -59,8 +62,8 @@ public class RidesAndFaresExercise {
     /**
      * Creates and executes the pipeline using the StreamExecutionEnvironment provided.
      *
-     * @throws Exception which occurs during job execution.
      * @return {JobExecutionResult}
+     * @throws Exception which occurs during job execution.
      */
     public JobExecutionResult execute() throws Exception {
 
@@ -99,19 +102,44 @@ public class RidesAndFaresExercise {
     public static class EnrichmentFunction
             extends RichCoFlatMapFunction<TaxiRide, TaxiFare, RideAndFare> {
 
+        private ValueState<TaxiRide> rideState;
+        private ValueState<TaxiFare> fareState;
+
+
         @Override
         public void open(Configuration config) throws Exception {
-            throw new MissingSolutionException();
+            rideState = getRuntimeContext().getState(new ValueStateDescriptor<>("saved ride", TaxiRide.class));
+            fareState = getRuntimeContext().getState(new ValueStateDescriptor<>("saved fare", TaxiFare.class));
+            // flink handles joining the events, both keyed on the rideId
         }
 
         @Override
         public void flatMap1(TaxiRide ride, Collector<RideAndFare> out) throws Exception {
-            throw new MissingSolutionException();
+
+            //check if we have a fare event
+            TaxiFare fare = fareState.value();
+
+            // if we do, clear the state and report the new ride/fare combo to out collector
+            if (fare != null){
+                fareState.clear(); //clear state - if crash between the two, would rewind to recent checkpoint and restart
+                out.collect(new RideAndFare(ride, fare)); //produce result
+            } else { //else update the ride state to be processed with later arriving event
+                rideState.update(ride);
+            }
+
         }
 
         @Override
         public void flatMap2(TaxiFare fare, Collector<RideAndFare> out) throws Exception {
-            throw new MissingSolutionException();
+
+            TaxiRide ride = rideState.value();
+
+            if (ride != null ){
+                rideState.clear();
+                out.collect(new RideAndFare(ride, fare));
+            } else {
+                fareState.update(fare);
+            }
         }
     }
 }
