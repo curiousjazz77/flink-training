@@ -15,100 +15,92 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.apache.flink.training.exercises.longrides.scala
 
-package org.apache.flink.training.exercises.longrides;
+import org.apache.flink.api.common.JobExecutionResult
+import org.apache.flink.api.common.eventtime.{SerializableTimestampAssigner, WatermarkStrategy}
+import org.apache.flink.configuration.Configuration
+import org.apache.flink.streaming.api.functions.KeyedProcessFunction
+import org.apache.flink.streaming.api.functions.sink.{PrintSinkFunction, SinkFunction}
+import org.apache.flink.streaming.api.functions.source.SourceFunction
+import org.apache.flink.streaming.api.scala.{StreamExecutionEnvironment, _}
+import org.apache.flink.training.exercises.common.datatypes.TaxiRide
+import org.apache.flink.training.exercises.common.sources.TaxiRideGenerator
+import org.apache.flink.training.exercises.common.utils.MissingSolutionException
+import org.apache.flink.util.Collector
 
-import org.apache.flink.annotation.VisibleForTesting;
-import org.apache.flink.api.common.JobExecutionResult;
-import org.apache.flink.api.common.eventtime.WatermarkStrategy;
-import org.apache.flink.configuration.Configuration;
-import org.apache.flink.streaming.api.datastream.DataStream;
-import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
-import org.apache.flink.streaming.api.functions.sink.PrintSinkFunction;
-import org.apache.flink.streaming.api.functions.sink.SinkFunction;
-import org.apache.flink.streaming.api.functions.source.SourceFunction;
-import org.apache.flink.training.exercises.common.datatypes.TaxiRide;
-import org.apache.flink.training.exercises.common.sources.TaxiRideGenerator;
-import org.apache.flink.training.exercises.common.utils.MissingSolutionException;
-import org.apache.flink.util.Collector;
+import java.time.Duration
 
-import java.time.Duration;
+/** The "Long Ride Alerts" exercise.
+  *
+  * <p>The goal for this exercise is to emit the rideIds for taxi rides with a duration of more than
+  * two hours. You should assume that TaxiRide events can be lost, but there are no duplicates.
+  *
+  * <p>You should eventually clear any state you create.
+  */
+object LongRidesExercise {
 
-/**
- * The "Long Ride Alerts" exercise.
- *
- * <p>The goal for this exercise is to emit the rideIds for taxi rides with a duration of more than
- * two hours. You should assume that TaxiRide events can be lost, but there are no duplicates.
- *
- * <p>You should eventually clear any state you create.
- */
-public class LongRidesExercise {
-    private final SourceFunction<TaxiRide> source;
-    private final SinkFunction<Long> sink;
+  class LongRidesJob(source: SourceFunction[TaxiRide], sink: SinkFunction[Long]) {
 
-    /** Creates a job using the source and sink provided. */
-    public LongRidesExercise(SourceFunction<TaxiRide> source, SinkFunction<Long> sink) {
-        this.source = source;
-        this.sink = sink;
+    /** Creates and executes the ride cleansing pipeline.
+      */
+    @throws[Exception]
+    def execute(): JobExecutionResult = {
+      val env = StreamExecutionEnvironment.getExecutionEnvironment
+
+      // start the data generator
+      val rides = env.addSource(source)
+
+      // the WatermarkStrategy specifies how to extract timestamps and generate watermarks
+      val watermarkStrategy = WatermarkStrategy
+        .forBoundedOutOfOrderness[TaxiRide](Duration.ofSeconds(60))
+        .withTimestampAssigner(new SerializableTimestampAssigner[TaxiRide] {
+          override def extractTimestamp(ride: TaxiRide, streamRecordTimestamp: Long): Long =
+            ride.getEventTimeMillis
+        })
+
+      // create the pipeline
+      rides
+        .assignTimestampsAndWatermarks(watermarkStrategy)
+        .keyBy(_.rideId)
+        .process(new AlertFunction())
+        .addSink(sink)
+
+      // execute the pipeline and return the result
+      env.execute("Long Taxi Rides")
     }
 
-    /**
-     * Creates and executes the long rides pipeline.
-     *
-     * @return {JobExecutionResult}
-     * @throws Exception which occurs during job execution.
-     */
-    public JobExecutionResult execute() throws Exception {
+  }
 
-        // set up streaming execution environment
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+  @throws[Exception]
+  def main(args: Array[String]): Unit = {
+    val job = new LongRidesJob(new TaxiRideGenerator, new PrintSinkFunction)
 
-        // start the data generator
-        DataStream<TaxiRide> rides = env.addSource(source);
+    job.execute()
+  }
 
-        // the WatermarkStrategy specifies how to extract timestamps and generate watermarks
-        WatermarkStrategy<TaxiRide> watermarkStrategy =
-                WatermarkStrategy.<TaxiRide>forBoundedOutOfOrderness(Duration.ofSeconds(60))
-                        .withTimestampAssigner(
-                                (ride, streamRecordTimestamp) -> ride.getEventTimeMillis());
+  class AlertFunction extends KeyedProcessFunction[Long, TaxiRide, Long] {
 
-        // create the pipeline
-        rides.assignTimestampsAndWatermarks(watermarkStrategy)
-                .keyBy(ride -> ride.rideId)
-                .process(new AlertFunction())
-                .addSink(sink);
-
-        // execute the pipeline and return the result
-        return env.execute("Long Taxi Rides");
+    override def open(parameters: Configuration): Unit = {
+      throw new MissingSolutionException()
     }
 
-    /**
-     * Main method.
-     *
-     * @throws Exception which occurs during job execution.
-     */
-    public static void main(String[] args) throws Exception {
-        LongRidesExercise job =
-                new LongRidesExercise(new TaxiRideGenerator(), new PrintSinkFunction<>());
+    override def processElement(
+        ride: TaxiRide,
+        context: KeyedProcessFunction[Long, TaxiRide, Long]#Context,
+        out: Collector[Long]
+    ): Unit = {
 
-        job.execute();
     }
 
-    @VisibleForTesting
-    public static class AlertFunction extends KeyedProcessFunction<Long, TaxiRide, Long> {
+    override def onTimer(
+        timestamp: Long,
+        ctx: KeyedProcessFunction[Long, TaxiRide, Long]#OnTimerContext,
+        out: Collector[Long]
+    ): Unit = {
 
-        @Override
-        public void open(Configuration config) throws Exception {
-            throw new MissingSolutionException();
-        }
-
-        @Override
-        public void processElement(TaxiRide ride, Context context, Collector<Long> out)
-                throws Exception {}
-
-        @Override
-        public void onTimer(long timestamp, OnTimerContext context, Collector<Long> out)
-                throws Exception {}
     }
+
+  }
+
 }
